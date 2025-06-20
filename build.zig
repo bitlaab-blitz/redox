@@ -40,7 +40,7 @@ pub fn build(b: *std.Build) void {
                 },
                 .x86_64 => {
                     pkg.addObjectFile(b.path("lib/linux/x86_64/libhiredis.a"));
-                    exe.addObjectFile(b.path("lib/linux/aarch64/libhiredis.a"));
+                    exe.addObjectFile(b.path("lib/linux/x86_64/libhiredis.a"));
                 },
                 else => @panic("Unsupported architecture!")
             }
