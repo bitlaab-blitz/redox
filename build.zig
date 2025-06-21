@@ -21,7 +21,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    main.addIncludePath(b.path("lib/include"));
+    // main.addIncludePath(b.path("lib/include"));
 
     const app = "redox";
     const exe = b.addExecutable(.{.name = app, .root_module = main});
@@ -36,11 +36,11 @@ pub fn build(b: *std.Build) void {
             switch (target.query.cpu_arch orelse builtin.cpu.arch) {
                 .aarch64 => {
                     pkg.addObjectFile(b.path("lib/linux/aarch64/libhiredis.a"));
-                    exe.addObjectFile(b.path("lib/linux/aarch64/libhiredis.a"));
+                    //exe.addObjectFile(b.path("lib/linux/aarch64/libhiredis.a"));
                 },
                 .x86_64 => {
                     pkg.addObjectFile(b.path("lib/linux/x86_64/libhiredis.a"));
-                    exe.addObjectFile(b.path("lib/linux/x86_64/libhiredis.a"));
+                    //exe.addObjectFile(b.path("lib/linux/x86_64/libhiredis.a"));
                 },
                 else => @panic("Unsupported architecture!")
             }
