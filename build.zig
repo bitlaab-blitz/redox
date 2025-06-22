@@ -21,8 +21,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    // main.addIncludePath(b.path("lib/include"));
-
     const app = "redox";
     const exe = b.addExecutable(.{.name = app, .root_module = main});
 
@@ -31,16 +29,12 @@ pub fn build(b: *std.Build) void {
         .linux => {
             exe.linkLibC();
 
-            // clean exe.addObjectFile at last when package is used!
-
             switch (target.query.cpu_arch orelse builtin.cpu.arch) {
                 .aarch64 => {
                     pkg.addObjectFile(b.path("lib/linux/aarch64/libhiredis.a"));
-                    //exe.addObjectFile(b.path("lib/linux/aarch64/libhiredis.a"));
                 },
                 .x86_64 => {
                     pkg.addObjectFile(b.path("lib/linux/x86_64/libhiredis.a"));
-                    //exe.addObjectFile(b.path("lib/linux/x86_64/libhiredis.a"));
                 },
                 else => @panic("Unsupported architecture!")
             }
@@ -50,10 +44,6 @@ pub fn build(b: *std.Build) void {
 
     // Self importing package
     exe.root_module.addImport("redox", pkg);
-
-    // Adding External Dependency
-    // const jsonic = b.dependency("jsonic", .{});
-    // exe.root_module.addImport("jsonic", jsonic.module("jsonic"));
 
     b.installArtifact(exe);
     const run_cmd = b.addRunArtifact(exe);

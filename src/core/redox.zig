@@ -1,7 +1,9 @@
 //! # High-Level HiRedis Wrapper
+//! **Remarks:** HiRedis is single-threaded, but Redox ensures thread safety.
 
 const std = @import("std");
 const fmt = std.fmt;
+const Mutex = std.Thread.Mutex;
 
 const hiredis = @import("../binding/hiredis.zig");
 const ReplyType = hiredis.ReplyType;
@@ -23,6 +25,7 @@ pub const Sync = struct {
     const Flag = enum { Default, IfNotExists, IfExists };
 
     ctx: Ctx,
+    mutex: Mutex,
 
     const Self = @This();
 
@@ -30,7 +33,9 @@ pub const Sync = struct {
     pub fn init(host: Str, port: u16) !Self {
         var buff: [256]u8 = undefined;
         const host_z = try fmt.bufPrintZ(&buff, "{s}", .{host});
-        return .{.ctx = try hiredis.Sync.connect(host_z, port)};
+
+        const ctx = try hiredis.Sync.connect(host_z, port);
+        return .{.ctx = ctx, .mutex = Mutex{}};
     }
 
     /// # Destroys HiRedis Instance
@@ -38,14 +43,20 @@ pub const Sync = struct {
 
     /// # Shows Human-Readable Error Message
     /// - Most recent error that occurred on a HiRedis instance
-    pub fn errMsg(self: *const Self) Str {
+    pub fn errMsg(self: *Self) Str {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
         return hiredis.Sync.errMsg(self.ctx);
     }
 
     /// # Inserts a New Record
     /// - `k` - The record key (e.g., `user:1234`)
     /// - `v` - The record value (e.g., `John Doe`)
-    pub fn set(self: *const Self, k: Str, v: Str, f: Flag) !void {
+    pub fn set(self: *Self, k: Str, v: Str, f: Flag) !void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
         const reply = blk: {
             switch (f) {
                 .Default => {
@@ -78,7 +89,10 @@ pub const Sync = struct {
     /// - `k` - The record key (e.g., `user:1234`)
     /// - `v` - The record value (e.g., `John Doe`)
     /// - `ttl` - Time-to-live in seconds (e.g., `120`)
-    pub fn setWith(self: *const Self, k: Str, v: Str, f: Flag, ttl: u32) !void {
+    pub fn setWith(self: *Self, k: Str, v: Str, f: Flag, ttl: u32) !void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
         var buff: [10]u8 = undefined;
         const ttl_str = try fmt.bufPrint(&buff, "{d}", .{ttl});
 
@@ -118,7 +132,10 @@ pub const Sync = struct {
     /// **Remarks:** Make sure to call `Data.free()` after use.
     ///
     /// - `k` - The record key (e.g., `user:1234`)
-    pub fn get(self: *const Self, k: Str) !Data {
+    pub fn get(self: *Self, k: Str) !Data {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
         var argv = [2]StrC {"GET", k.ptr};
         var len = [2]usize {3, k.len};
         const reply = try self.command(&argv, &len);
@@ -135,7 +152,10 @@ pub const Sync = struct {
 
     /// # Deletes a Record by the Given Key
     /// - `k` - The record key (e.g., `user:1234`)
-    pub fn remove(self: *const Self, k: Str) !void {
+    pub fn remove(self: *Self, k: Str) !void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
         var argv = [2]StrC {"DEL", k.ptr};
         var len = [2]usize {3, k.len};
         const reply = try self.command(&argv, &len);
@@ -167,3 +187,9 @@ pub const Sync = struct {
     };
 };
 
+//##############################################################################
+//# ASYNCHRONOUS WRAPPER ------------------------------------------------------#
+//##############################################################################
+
+// TODO: Implement when sync becomes a bottleneck.
+// pub const Async = struct { };

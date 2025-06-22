@@ -2,21 +2,21 @@ const std = @import("std");
 
 const Redox = @import("redox").Redox;
 
-
 pub fn main() !void {
+    std.debug.print("Hello, World!\n", .{});
 
-    const redox = try Redox.Sync.init("127.0.0.1", 6379);
+    // Let's start from here...
+
+    var redox = try Redox.Sync.init("127.0.0.1", 6379);
     defer redox.deinit();
 
     std.debug.print("Redis error: {s}|\n", .{redox.errMsg()});
 
-    try redox.set("foo", "hello", .Default);
+    try redox.setWith("foo", "bar", .Default, 30);
 
-    const v = try redox.get("foo");
-    defer v.free();
+    const rec = try redox.get("foo");
+    defer rec.free();
+    std.debug.print("Value: {s}|\n", .{rec.value()});
 
-    std.debug.print("{s}\n", .{v.value()});
-
-    try redox.remove("foho");
+    try redox.remove("foo");
 }
-

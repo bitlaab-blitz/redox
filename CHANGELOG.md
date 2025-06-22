@@ -23,6 +23,6 @@ Here we write upgrading notes and make them as straightforward as possible.
 - A short description for fixed item n
 
 
-## [v0.5.0] - 2025-06-20
+## [v0.5.0] - 2025-06-22
 
-Initial bare minimum implementation.
+Initial bare minimum implementation (Sync only).

@@ -4,7 +4,10 @@ const std = @import("std");
 const log = std.log;
 const debug = std.debug;
 
-const hiredis = @cImport({ @cInclude("hiredis.h"); });
+const hiredis = @cImport({
+    @cInclude("hiredis.h");
+    @cInclude("async.h");
+});
 
 const Str = []const u8;
 const StrZ = [:0]const u8;
@@ -61,6 +64,5 @@ pub const Sync = struct {
 //# ASYNCHRONOUS WRAPPER ------------------------------------------------------#
 //##############################################################################
 
-pub const Async = struct {
-
-};
+// TODO: Implement when sync becomes a bottleneck.
+// pub const Async = struct { };
