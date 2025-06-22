@@ -48,7 +48,7 @@ try redox.setWith("foo", "bar", .Default, 30);
 ```zig
 const rec = try redox.get("foo");
 defer rec.free();
-std.debug.print("Value: {s}|\n", .{rec.value()});
+std.debug.print("Value: {s}\n", .{rec.value()});
 ```
 
 ## Delete a Record by the Given Key
