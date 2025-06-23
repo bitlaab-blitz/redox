@@ -30,4 +30,4 @@ make static
 
 This produces the static library on the current directory.
 
-**Remarks:** Make sure to build this for both `aarch64` and `x86_64` platforms. 
+**Remarks:** Make sure to build this for both `aarch64` and `x86_64` platforms.

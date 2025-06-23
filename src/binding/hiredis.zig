@@ -9,6 +9,7 @@ const hiredis = @cImport({
     @cInclude("async.h");
 });
 
+
 const Str = []const u8;
 const StrZ = [:0]const u8;
 const StrC = [*c]const u8;
