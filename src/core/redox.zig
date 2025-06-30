@@ -3,7 +3,10 @@
 
 const std = @import("std");
 const fmt = std.fmt;
+const mem = std.mem;
 const Mutex = std.Thread.Mutex;
+const Allocator = mem.Allocator;
+const ArrayList = std.ArrayList;
 
 const hiredis = @import("../binding/hiredis.zig");
 const ReplyType = hiredis.ReplyType;
@@ -13,6 +16,8 @@ const Str = []const u8;
 const StrC = [*c]const u8;
 
 const Error = error { NotFound, UnknownType, InvalidCommand, OperationFailed };
+
+const Keys = []const Str;
 
 //##############################################################################
 //# SYNCHRONOUS WRAPPER -------------------------------------------------------#
@@ -168,6 +173,57 @@ pub const Sync = struct {
             @intFromEnum(ReplyType.Error) => return Error.InvalidCommand,
             else => return Error.UnknownType
         }
+    }
+
+    /// # Scans for Partially Matching keys
+    /// **WARNING:** Return value should be freed with `Redox.Sync.free()`.
+    ///
+    /// - `pk` - The partial record key (e.g., `user:*`)
+    /// - `count` - Limits the maximum number of scanned keys
+    pub fn scan(self: *Self, heap: Allocator, pk: Str, count: u32) !Keys {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        var key_list = ArrayList(Str).init(heap);
+        var cursor: StrC = "0";
+
+        while (true) {
+            const sc = mem.span(cursor);
+            var argv = [8]StrC {
+                "SCAN", sc.ptr, "MATCH", pk.ptr, "TYPE", "string", "COUNT", "32"
+            };
+            var len = [8]usize {4, sc.len, 5, pk.len, 4, 6, 5, 2};
+
+            const reply = try self.command(&argv, &len);
+            defer hiredis.Sync.freeReply(reply);
+
+            switch (reply.*.type) {
+                @intFromEnum(ReplyType.Array) => {
+                    cursor = reply.*.element[0].*.str;
+                    const keys = reply.*.element[1];
+
+                    for (0..keys.*.elements) |i| {
+                        if (key_list.items.len == count) break;
+
+                        const key = keys.*.element[i];
+                        const val = try heap.alloc(u8, key.*.len);
+                        mem.copyForwards(u8, val, mem.span(key.*.str));
+                        try key_list.append(val);
+                    }
+
+                    if (mem.eql(u8, sc, "0")) break;
+                },
+                else => return Error.UnknownType
+            }
+        }
+
+        return try key_list.toOwnedSlice();
+    }
+
+    /// # Frees `Keys` returned by the `scan()`
+    pub fn free(heap: Allocator, keys: Keys) void {
+        for (keys) |key| heap.free(key);
+        heap.free(keys);
     }
 
     /// # Executes a Given Command

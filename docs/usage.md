@@ -11,6 +11,10 @@ const Redox = @import("redox").Redox;
 Let's initialize an Redox instance.
 
 ```zig
+var gpa_mem = std.heap.DebugAllocator(.{}).init;
+defer std.debug.assert(gpa_mem.deinit() == .ok);
+const heap = gpa_mem.allocator();
+
 var redox = try Redox.Sync.init("127.0.0.1", 6379);
 defer redox.deinit();
 ```
@@ -55,6 +59,15 @@ std.debug.print("Value: {s}\n", .{rec.value()});
 
 ```zig
 try redox.remove("foo2");
+```
+
+## Scan Partially Matched Keys
+
+```zig
+const keys = try redox.scan(heap, "foo:*", 10);
+defer Redox.Sync.free(heap, keys);
+
+for (keys) |key| { std.debug.print("key: {s}\n", .{key}); }
 ```
 
 ## Show Human-Readable Error Message

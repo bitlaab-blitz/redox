@@ -19,6 +19,7 @@ const Error = error { FailedToConnect, FailedToExecCommand };
 pub const ReplyType = enum(c_int) {
     Nil =  hiredis.REDIS_REPLY_NIL,
     Error = hiredis.REDIS_REPLY_ERROR,
+    Array = hiredis.REDIS_REPLY_ARRAY,
     Status = hiredis.REDIS_REPLY_STATUS,
     String =  hiredis.REDIS_REPLY_STRING,
     Integer = hiredis.REDIS_REPLY_INTEGER
