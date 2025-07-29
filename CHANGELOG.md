@@ -22,13 +22,6 @@ Here we write upgrading notes and make them as straightforward as possible.
 - A short description for fixed item 2
 - A short description for fixed item n
 
-
-## [v0.5.1] - 2025-06-30
-
-### Added
-- `scan()` for partially matching keys
-- `free()` for freeing the scanned keys
-
 ## [v1.0.0] - 2025-07-29
 
 Initial bare minimum implementation (Sync Interface only).
