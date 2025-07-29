@@ -29,6 +29,6 @@ Here we write upgrading notes and make them as straightforward as possible.
 - `scan()` for partially matching keys
 - `free()` for freeing the scanned keys
 
-## [v0.5.0] - 2025-06-22
+## [v1.0.0] - 2025-07-29
 
-Initial bare minimum implementation (Sync only).
+Initial bare minimum implementation (Sync Interface only).

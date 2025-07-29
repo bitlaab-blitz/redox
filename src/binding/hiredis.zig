@@ -1,8 +1,6 @@
 //! # Underlying HiRedis v1.3.0 API Bindings
 
 const std = @import("std");
-const log = std.log;
-const debug = std.debug;
 
 const hiredis = @cImport({
     @cInclude("hiredis.h");
@@ -37,7 +35,7 @@ pub const Sync = struct {
         const ctx = hiredis.redisConnect(host, @intCast(port));
         if (ctx != null and ctx.*.err == 0) return ctx
         else {
-            log.info("{s}", .{errMsg(ctx)});
+            std.log.info("{s}", .{errMsg(ctx)});
             return Error.FailedToConnect;
         }
     }

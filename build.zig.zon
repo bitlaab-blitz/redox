@@ -1,10 +1,11 @@
 .{
     .name = .redox,
-    .version = "0.5.1",
+    .version = "1.0.0",
     .fingerprint = 0xbaadae19f19053b3,
     .minimum_zig_version = "0.15.0-dev.832+1ca213dab",
     .dependencies = .{},
     .paths = .{
+        "docs",
         "lib",
         "src",
         "build.zig",
