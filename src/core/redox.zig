@@ -184,7 +184,9 @@ pub const Sync = struct {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        var key_list = ArrayList(Str).init(heap);
+        var key_list = ArrayList(Str){};
+        errdefer key_list.deinit(heap);
+
         var cursor: StrC = "0";
 
         while (true) {
@@ -208,7 +210,7 @@ pub const Sync = struct {
                         const key = keys.*.element[i];
                         const val = try heap.alloc(u8, key.*.len);
                         mem.copyForwards(u8, val, mem.span(key.*.str));
-                        try key_list.append(val);
+                        try key_list.append(heap, val);
                     }
 
                     if (mem.eql(u8, sc, "0")) break;
@@ -217,7 +219,7 @@ pub const Sync = struct {
             }
         }
 
-        return try key_list.toOwnedSlice();
+        return try key_list.toOwnedSlice(heap);
     }
 
     /// # Frees `Keys` returned by the `scan()`
