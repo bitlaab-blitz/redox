@@ -15,7 +15,12 @@ const ReplyType = hiredis.ReplyType;
 const Str = []const u8;
 const StrC = [*c]const u8;
 
-const Error = error { NotFound, UnknownType, InvalidCommand, OperationFailed };
+const Error = error {
+    RedoxKeyNotFound,
+    RedoxUnknownType,
+    RedoxInvalidCommand,
+    RedoxOperationFailed
+};
 
 const Keys = []const Str;
 
@@ -31,6 +36,9 @@ pub const Sync = struct {
 
     ctx: Ctx,
     mutex: Mutex,
+    host_buf: [256]u8,
+    host_len: usize,
+    port: u16,
 
     const Self = @This();
 
@@ -40,7 +48,16 @@ pub const Sync = struct {
         const host_z = try fmt.bufPrintZ(&buff, "{s}", .{host});
 
         const ctx = try hiredis.Sync.connect(host_z, port);
-        return .{.ctx = ctx, .mutex = Mutex{}};
+        var self = Self {
+            .ctx = ctx,
+            .mutex = Mutex{},
+            .host_buf = undefined,
+            .host_len = host.len,
+            .port = port,
+        };
+
+        mem.copyForwards(u8, &self.host_buf, host);
+        return self;
     }
 
     /// # Destroys HiRedis Instance
@@ -84,9 +101,9 @@ pub const Sync = struct {
 
         switch (reply.*.type) {
             @intFromEnum(ReplyType.Status) => hiredis.Sync.freeReply(reply),
-            @intFromEnum(ReplyType.Error) => return Error.InvalidCommand,
-            @intFromEnum(ReplyType.Nil) => return Error.OperationFailed,
-            else => return Error.UnknownType
+            @intFromEnum(ReplyType.Error) => return Error.RedoxInvalidCommand,
+            @intFromEnum(ReplyType.Nil) => return Error.RedoxOperationFailed,
+            else => return Error.RedoxUnknownType
         }
     }
 
@@ -127,9 +144,9 @@ pub const Sync = struct {
 
         switch (reply.*.type) {
             @intFromEnum(ReplyType.Status) => hiredis.Sync.freeReply(reply),
-            @intFromEnum(ReplyType.Error) => return Error.InvalidCommand,
-            @intFromEnum(ReplyType.Nil) => return Error.OperationFailed,
-            else => return Error.UnknownType
+            @intFromEnum(ReplyType.Error) => return Error.RedoxInvalidCommand,
+            @intFromEnum(ReplyType.Nil) => return Error.RedoxOperationFailed,
+            else => return Error.RedoxUnknownType
         }
     }
 
@@ -149,9 +166,9 @@ pub const Sync = struct {
             @intFromEnum(ReplyType.String) => {
                 return .{.reply = reply, .string = reply.*.str[0..reply.*.len]};
             },
-            @intFromEnum(ReplyType.Error) => return Error.InvalidCommand,
-            @intFromEnum(ReplyType.Nil) => return Error.NotFound,
-            else => return Error.UnknownType
+            @intFromEnum(ReplyType.Error) => return Error.RedoxInvalidCommand,
+            @intFromEnum(ReplyType.Nil) => return Error.RedoxKeyNotFound,
+            else => return Error.RedoxUnknownType
         }
     }
 
@@ -168,10 +185,10 @@ pub const Sync = struct {
         switch (reply.*.type) {
             @intFromEnum(ReplyType.Integer) => {
                 defer hiredis.Sync.freeReply(reply);
-                if (reply.*.integer == 0) return Error.NotFound;
+                if (reply.*.integer == 0) return Error.RedoxKeyNotFound;
             },
-            @intFromEnum(ReplyType.Error) => return Error.InvalidCommand,
-            else => return Error.UnknownType
+            @intFromEnum(ReplyType.Error) => return Error.RedoxInvalidCommand,
+            else => return Error.RedoxUnknownType
         }
     }
 
@@ -215,7 +232,7 @@ pub const Sync = struct {
 
                     if (mem.eql(u8, sc, "0")) break;
                 },
-                else => return Error.UnknownType
+                else => return Error.RedoxUnknownType
             }
         }
 
@@ -229,8 +246,25 @@ pub const Sync = struct {
     }
 
     /// # Executes a Given Command
-    fn command(self: *const Self, argv: []StrC, len: []const usize) !Reply {
-        return try hiredis.Sync.command(self.ctx, argv, len);
+    /// **Remarks:** Reconnects and retries once if failed to execute.
+    fn command(self: *Self, argv: []StrC, len: []const usize) !Reply {
+        return hiredis.Sync.command(self.ctx, argv, len) catch |err| {
+            switch (err) {
+                error.RedoxFailedToExecCommand => {
+                    // Transparently reconnect and retry once
+                    var buff: [256]u8 = undefined;
+                    const host_str = self.host_buf[0..self.host_len];
+                    const host_z = try fmt.bufPrintZ(&buff, "{s}", .{host_str});
+
+                    const ctx = try hiredis.Sync.connect(host_z, self.port);
+                    hiredis.Sync.freeCtx(self.ctx);
+                    self.ctx = ctx;
+
+                    return try hiredis.Sync.command(self.ctx, argv, len);
+                },
+                else => return err
+            }
+        };
     }
 
     const Data = struct {

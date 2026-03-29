@@ -14,7 +14,7 @@ pub fn main() !void {
     var redox = try Redox.Sync.init("127.0.0.1", 6379);
     defer redox.deinit();
 
-    std.debug.print("Redis error: {s}|\n", .{redox.errMsg()});
+    std.debug.print("Redis error: {s}\n", .{redox.errMsg()});
 
     try redox.set("foo:1", "bar", .Default);
     try redox.set("foo:2", "bar", .Default);

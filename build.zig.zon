@@ -1,6 +1,6 @@
 .{
     .name = .redox,
-    .version = "1.1.0",
+    .version = "1.2.0",
     .fingerprint = 0xbaadae19f19053b3,
     .minimum_zig_version = "0.15.1",
     .dependencies = .{},

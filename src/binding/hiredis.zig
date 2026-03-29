@@ -12,7 +12,7 @@ const Str = []const u8;
 const StrZ = [:0]const u8;
 const StrC = [*c]const u8;
 
-const Error = error { FailedToConnect, FailedToExecCommand };
+const Error = error { RedoxFailedToConnect, RedoxFailedToExecCommand };
 
 pub const ReplyType = enum(c_int) {
     Nil =  hiredis.REDIS_REPLY_NIL,
@@ -35,14 +35,17 @@ pub const Sync = struct {
         const ctx = hiredis.redisConnect(host, @intCast(port));
         if (ctx != null and ctx.*.err == 0) return ctx
         else {
-            std.log.info("{s}", .{errMsg(ctx)});
-            return Error.FailedToConnect;
+            std.log.err("Redis - {s}", .{errMsg(ctx)});
+            return Error.RedoxFailedToConnect;
         }
     }
 
     pub fn freeCtx(ctx: Ctx) void { hiredis.redisFree(ctx); }
 
-    pub fn errMsg(ctx: Ctx) Str { return ctx.*.errstr[0..]; }
+    pub fn errMsg(ctx: Ctx) []const u8 {
+        return if (ctx.*.err == 0) "Unknown Redis error"
+        else std.mem.sliceTo(&ctx.*.errstr, 0);
+    }
 
     pub fn command(ctx: Ctx, argv: []StrC, len: []const usize) Error!Reply {
         const lc: c_int = @intCast(argv.len);
@@ -52,7 +55,7 @@ pub const Sync = struct {
         const reply = hiredis.redisCommandArgv(ctx, lc, arg_c, len_c);
 
         return if (reply != null) @ptrCast(@alignCast(reply))
-        else Error.FailedToExecCommand;
+        else Error.RedoxFailedToExecCommand;
     }
 
     pub fn freeReply(reply: Reply) void {

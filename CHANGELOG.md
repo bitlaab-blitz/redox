@@ -23,6 +23,14 @@ Here we write upgrading notes and make them as straightforward as possible.
 - A short description for fixed item n
 
 
+## [v1.2.0] - 2026-03-29
+
+Miscellaneous Improvements.
+
+### Added
+- Clearer error message propagation.
+- Reconnect and retry once for command execution.
+
 ## [v1.1.0] - 2025-09-13
 
 Minor code changes required for Zig v0.15.1 breaking changes.
