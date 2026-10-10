@@ -102,8 +102,10 @@ pub const Sync = struct {
             }
         };
 
+        defer hiredis.Sync.freeReply(reply);
+
         switch (reply.*.type) {
-            @intFromEnum(ReplyType.Status) => hiredis.Sync.freeReply(reply),
+            @intFromEnum(ReplyType.Status) => {},
             @intFromEnum(ReplyType.Error) => return Error.RedoxInvalidCommand,
             @intFromEnum(ReplyType.Nil) => return Error.RedoxOperationFailed,
             else => return Error.RedoxUnknownType
@@ -145,8 +147,10 @@ pub const Sync = struct {
             }
         };
 
+        defer hiredis.Sync.freeReply(reply);
+
         switch (reply.*.type) {
-            @intFromEnum(ReplyType.Status) => hiredis.Sync.freeReply(reply),
+            @intFromEnum(ReplyType.Status) => {},
             @intFromEnum(ReplyType.Error) => return Error.RedoxInvalidCommand,
             @intFromEnum(ReplyType.Nil) => return Error.RedoxOperationFailed,
             else => return Error.RedoxUnknownType
@@ -169,9 +173,18 @@ pub const Sync = struct {
             @intFromEnum(ReplyType.String) => {
                 return .{.reply = reply, .string = reply.*.str[0..reply.*.len]};
             },
-            @intFromEnum(ReplyType.Error) => return Error.RedoxInvalidCommand,
-            @intFromEnum(ReplyType.Nil) => return Error.RedoxKeyNotFound,
-            else => return Error.RedoxUnknownType
+            @intFromEnum(ReplyType.Error) => {
+                defer hiredis.Sync.freeReply(reply);
+                return Error.RedoxInvalidCommand;
+            },
+            @intFromEnum(ReplyType.Nil) => {
+                defer hiredis.Sync.freeReply(reply);
+                return Error.RedoxKeyNotFound;
+            },
+            else => {
+                defer hiredis.Sync.freeReply(reply);
+                return Error.RedoxUnknownType;
+            }
         }
     }
 
@@ -184,10 +197,10 @@ pub const Sync = struct {
         var argv = [2]StrC {"DEL", k.ptr};
         var len = [2]usize {3, k.len};
         const reply = try self.command(&argv, &len);
+        defer hiredis.Sync.freeReply(reply);
 
         switch (reply.*.type) {
             @intFromEnum(ReplyType.Integer) => {
-                defer hiredis.Sync.freeReply(reply);
                 if (reply.*.integer == 0) return Error.RedoxKeyNotFound;
             },
             @intFromEnum(ReplyType.Error) => return Error.RedoxInvalidCommand,
@@ -207,21 +220,33 @@ pub const Sync = struct {
         var key_list: ArrayList(Str) = .empty;
         errdefer key_list.deinit(heap);
 
-        var cursor: StrC = "0";
+        var cursor_buf: [24]u8 = undefined;
+        var cursor_len: usize = 1;
+        @memcpy(cursor_buf[0..1], "0");
 
         while (true) {
-            const sc = mem.span(cursor);
             var argv = [8]StrC {
-                "SCAN", sc.ptr, "MATCH", pk.ptr, "TYPE", "string", "COUNT", "32"
+                "SCAN", cursor_buf[0..cursor_len].ptr, "MATCH", pk.ptr,
+                "TYPE", "string", "COUNT", "32"
             };
-            var len = [8]usize {4, sc.len, 5, pk.len, 4, 6, 5, 2};
+            var len = [8]usize {4, cursor_len, 5, pk.len, 4, 6, 5, 2};
 
             const reply = try self.command(&argv, &len);
             defer hiredis.Sync.freeReply(reply);
 
             switch (reply.*.type) {
                 @intFromEnum(ReplyType.Array) => {
-                    cursor = reply.*.element[0].*.str;
+                    // Copy the new cursor out before the reply is freed below.
+                    const cur = reply.*.element[0];
+                    const next = cur.*.str[0..cur.*.len];
+
+                    if (next.len > cursor_buf.len) {
+                        return Error.RedoxOperationFailed;
+                    }
+
+                    @memcpy(cursor_buf[0..next.len], next);
+                    cursor_len = next.len;
+
                     const keys = reply.*.element[1];
 
                     for (0..keys.*.elements) |i| {
@@ -229,11 +254,15 @@ pub const Sync = struct {
 
                         const key = keys.*.element[i];
                         const val = try heap.alloc(u8, key.*.len);
-                        mem.copyForwards(u8, val, mem.span(key.*.str));
-                        try key_list.append(heap, val);
+                        mem.copyForwards(u8, val, key.*.str[0..key.*.len]);
+                        key_list.append(heap, val) catch |err| {
+                            heap.free(val);
+                            return err;
+                        };
                     }
 
-                    if (mem.eql(u8, sc, "0")) break;
+                    if (key_list.items.len == count) break;
+                    if (mem.eql(u8, cursor_buf[0..cursor_len], "0")) break;
                 },
                 else => return Error.RedoxUnknownType
             }
@@ -249,7 +278,9 @@ pub const Sync = struct {
     }
 
     /// # Executes a Given Command
-    /// **Remarks:** Reconnects and retries once if failed to execute.
+    /// **Remarks:** Reconnects and retries once if failed to execute. If the
+    /// original command reached the server but the reply read failed,
+    /// the retry executes it a second time (safe for idempotent commands only).
     fn command(self: *Self, argv: []StrC, len: []const usize) !Reply {
         return hiredis.Sync.command(self.ctx, argv, len) catch |err| {
             switch (err) {

@@ -29,17 +29,17 @@ pub const Sync = struct {
 
     pub fn connect(host: StrZ, port: u16) Error!Ctx {
         const ctx = hiredis.redisConnect(host, @intCast(port));
-        if (ctx != null and ctx.*.err == 0) return ctx
-        else {
-            std.log.err("Redis - {s}", .{errMsg(ctx)});
-            return Error.RedoxFailedToConnect;
-        }
+        if (ctx != null and ctx.*.err == 0) return ctx;
+
+        std.log.err("Redis - {s}", .{errMsg(ctx)});
+        if (ctx != null) hiredis.redisFree(ctx);
+        return Error.RedoxFailedToConnect;
     }
 
     pub fn freeCtx(ctx: Ctx) void { hiredis.redisFree(ctx); }
 
     pub fn errMsg(ctx: Ctx) []const u8 {
-        return if (ctx.*.err == 0) "Found No Error in Redis"
+        return if (ctx == null or ctx.*.err == 0) "Found No Error in Redis"
         else std.mem.sliceTo(&ctx.*.errstr, 0);
     }
 
