@@ -38,9 +38,55 @@ pub const Sync = struct {
     io: Io,
     ctx: Ctx,
     mutex: Mutex,
-    host_buf: [256]u8,
     host_len: usize,
     port: u16,
+    host_buf: [256]u8,
+
+    /// Max `COUNT` hint sent per `SCAN` batch (network round-trip bound).
+    const scan_hint_cap: u32 = 1024;
+
+    /// # Builds the `SET` Command Arguments for a Given Flag
+    fn buildSet(k: Str, v: Str, f: Flag, ttl: ?Str) SetArgs {
+        var args = SetArgs {};
+        args.push("SET");
+        args.push(k);
+        args.push(v);
+
+        switch (f) {
+            .IfNotExists => args.push("NX"),
+            .IfExists => args.push("XX"),
+            .Default => {}
+        }
+
+        if (ttl) |t| {
+            args.push("EX");
+            args.push(t);
+        }
+
+        return args;
+    }
+
+    /// # Validates a `SET` Style Reply
+    fn expectStatus(reply: Reply) !void {
+        switch (reply.*.type) {
+            @intFromEnum(ReplyType.Status) => {},
+            @intFromEnum(ReplyType.Error) => return Error.RedoxInvalidCommand,
+            @intFromEnum(ReplyType.Nil) => return Error.RedoxOperationFailed,
+            else => return Error.RedoxUnknownType
+        }
+    }
+
+    const SetArgs = struct {
+        argv: [6]StrC = undefined,
+        len: [6]usize = undefined,
+        n: usize = 0,
+
+        fn push(self: *SetArgs, s: Str) void {
+            self.argv[self.n] = s.ptr;
+            self.len[self.n] = s.len;
+            self.n += 1;
+        }
+    };
 
     const Self = @This();
 
@@ -54,12 +100,12 @@ pub const Sync = struct {
             .io = io,
             .ctx = ctx,
             .mutex = .init,
-            .host_buf = undefined,
             .host_len = host.len,
             .port = port,
+            .host_buf = undefined,
         };
 
-        mem.copyForwards(u8, &self.host_buf, host);
+        @memcpy(self.host_buf[0..host.len], host);
         return self;
     }
 
@@ -82,34 +128,42 @@ pub const Sync = struct {
         try self.mutex.lock(self.io);
         defer self.mutex.unlock(self.io);
 
-        const reply = blk: {
-            switch (f) {
-                .Default => {
-                    var argv = [3]StrC {"SET", k.ptr, v.ptr};
-                    var len = [3]usize {3, k.len, v.len};
-                    break :blk try self.command(&argv, &len);
-                },
-                .IfNotExists => {
-                    var argv = [4]StrC {"SET", k.ptr, v.ptr, "NX"};
-                    var len = [4]usize {3, k.len, v.len, 2};
-                    break :blk try self.command(&argv, &len);
-                },
-                .IfExists => {
-                    var argv = [4]StrC {"SET", k.ptr, v.ptr, "XX"};
-                    var len = [4]usize {3, k.len, v.len, 2};
-                    break :blk try self.command(&argv, &len);
-                }
-            }
-        };
-
+        var args = buildSet(k, v, f, null);
+        const reply = try self.command(
+            args.argv[0..args.n], args.len[0..args.n]
+        );
         defer hiredis.Sync.freeReply(reply);
 
-        switch (reply.*.type) {
-            @intFromEnum(ReplyType.Status) => {},
-            @intFromEnum(ReplyType.Error) => return Error.RedoxInvalidCommand,
-            @intFromEnum(ReplyType.Nil) => return Error.RedoxOperationFailed,
-            else => return Error.RedoxUnknownType
+        try expectStatus(reply);
+    }
+
+    /// # Inserts Multiple Records in One Round-Trip (Pipelined)
+    /// **Remarks:** All commands are buffered and flushed in a single pass;
+    /// replies are drained in order to keep the connection in sync. The first
+    /// failure is returned after the full batch has been read.
+    ///
+    /// - `pairs` - Slice of `{ key, value }` records
+    pub fn setMany(self: *Self, pairs: []const [2]Str, f: Flag) !void {
+        try self.mutex.lock(self.io);
+        defer self.mutex.unlock(self.io);
+
+        for (pairs) |pair| {
+            var args = buildSet(pair[0], pair[1], f, null);
+            try hiredis.Sync.append(self.ctx, args.argv[0..args.n], args.len[0..args.n]);
         }
+
+        var first_err: ?Error = null;
+
+        for (pairs) |_| {
+            const reply = try hiredis.Sync.getReply(self.ctx);
+            defer hiredis.Sync.freeReply(reply);
+
+            expectStatus(reply) catch |err| {
+                if (first_err == null) first_err = err;
+            };
+        }
+
+        if (first_err) |err| return err;
     }
 
     /// # Inserts a New Record with Expiry
@@ -123,38 +177,13 @@ pub const Sync = struct {
         var buff: [10]u8 = undefined;
         const ttl_str = try fmt.bufPrint(&buff, "{d}", .{ttl});
 
-        const reply = blk: {
-            switch (f) {
-                .Default => {
-                    var argv = [5]StrC {"SET", k.ptr, v.ptr, "EX", ttl_str.ptr};
-                    var len = [5]usize {3, k.len, v.len, 2, ttl_str.len};
-                    break :blk try self.command(&argv, &len);
-                },
-                .IfNotExists => {
-                    var argv = [6]StrC {
-                        "SET", k.ptr, v.ptr, "NX", "EX", ttl_str.ptr
-                    };
-                    var len = [6]usize {3, k.len, v.len, 2, 2, ttl_str.len};
-                    break :blk try self.command(&argv, &len);
-                },
-                .IfExists => {
-                    var argv = [6]StrC {
-                        "SET", k.ptr, v.ptr, "XX", "EX", ttl_str.ptr
-                    };
-                    var len = [6]usize {3, k.len, v.len, 2, 2, ttl_str.len};
-                    break :blk try self.command(&argv, &len);
-                }
-            }
-        };
-
+        var args = buildSet(k, v, f, ttl_str);
+        const reply = try self.command(
+            args.argv[0..args.n], args.len[0..args.n]
+        );
         defer hiredis.Sync.freeReply(reply);
 
-        switch (reply.*.type) {
-            @intFromEnum(ReplyType.Status) => {},
-            @intFromEnum(ReplyType.Error) => return Error.RedoxInvalidCommand,
-            @intFromEnum(ReplyType.Nil) => return Error.RedoxOperationFailed,
-            else => return Error.RedoxUnknownType
-        }
+        try expectStatus(reply);
     }
 
     /// # Extracts a Record by the Given Key
@@ -220,6 +249,15 @@ pub const Sync = struct {
         var key_list: ArrayList(Str) = .empty;
         errdefer key_list.deinit(heap);
 
+        // Pre-size for the common case to avoid growth reallocations.
+        try key_list.ensureTotalCapacity(heap, @min(count, scan_hint_cap));
+
+        // Bound the number of SCAN round-trips by scaling the COUNT hint.
+        var hint_buf: [10]u8 = undefined;
+        const hint_str = try fmt.bufPrint(
+            &hint_buf, "{d}", .{@max(@min(count, scan_hint_cap), 1)}
+        );
+
         var cursor_buf: [24]u8 = undefined;
         var cursor_len: usize = 1;
         @memcpy(cursor_buf[0..1], "0");
@@ -227,9 +265,12 @@ pub const Sync = struct {
         while (true) {
             var argv = [8]StrC {
                 "SCAN", cursor_buf[0..cursor_len].ptr, "MATCH", pk.ptr,
-                "TYPE", "string", "COUNT", "32"
+                "TYPE", "string", "COUNT", hint_buf[0..hint_str.len].ptr
             };
-            var len = [8]usize {4, cursor_len, 5, pk.len, 4, 6, 5, 2};
+
+            var len = [8]usize {
+                4, cursor_len, 5, pk.len, 4, 6, 5, hint_str.len
+            };
 
             const reply = try self.command(&argv, &len);
             defer hiredis.Sync.freeReply(reply);
@@ -253,8 +294,7 @@ pub const Sync = struct {
                         if (key_list.items.len == count) break;
 
                         const key = keys.*.element[i];
-                        const val = try heap.alloc(u8, key.*.len);
-                        mem.copyForwards(u8, val, key.*.str[0..key.*.len]);
+                        const val = try heap.dupe(u8, key.*.str[0..key.*.len]);
                         key_list.append(heap, val) catch |err| {
                             heap.free(val);
                             return err;

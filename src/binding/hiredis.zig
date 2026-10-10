@@ -54,6 +54,28 @@ pub const Sync = struct {
         else Error.RedoxFailedToExecCommand;
     }
 
+    /// # Buffers a Command for Pipelining (No I/O, No Reply)
+    /// - Each append **must** be paired with exactly one `getReply()`, in order.
+    pub fn append(ctx: Ctx, argv: []StrC, len: []const usize) Error!void {
+        const lc: c_int = @intCast(argv.len);
+        const arg_c: [*c]StrC = @ptrCast(argv);
+        const len_c: [*c]const usize = @ptrCast(len);
+
+        if (hiredis.redisAppendCommandArgv(ctx, lc, arg_c, len_c) != hiredis.REDIS_OK)
+            return Error.RedoxFailedToExecCommand;
+    }
+
+    /// # Reads One Pipelined Reply (in FIFO order)
+    pub fn getReply(ctx: Ctx) Error!Reply {
+        var reply: ?*anyopaque = null;
+
+        if (hiredis.redisGetReply(ctx, @ptrCast(&reply)) != hiredis.REDIS_OK)
+            return Error.RedoxFailedToExecCommand;
+
+        return if (reply != null) @ptrCast(@alignCast(reply))
+        else Error.RedoxFailedToExecCommand;
+    }
+
     pub fn freeReply(reply: Reply) void {
         hiredis.freeReplyObject(@as(?*anyopaque, reply));
     }
