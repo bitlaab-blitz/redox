@@ -32,4 +32,4 @@ exe.root_module.addImport("redox", redox.module("redox"));
 lib.root_module.addImport("redox", redox.module("redox"));
 ```
 
-**Remarks:** You may need to link **libc** with your project executable - (e.g., `exe.linkLibC()`) if it hasn't been linked already.
+**Remarks:** You may need to link **libc** with your project executable - e.g., `exe.root_module.link_libc = true;` if it hasn't been linked already.
