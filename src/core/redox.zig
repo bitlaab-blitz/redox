@@ -2,9 +2,10 @@
 //! **Remarks:** HiRedis is single-threaded, but Redox ensures thread safety.
 
 const std = @import("std");
+const Io = std.Io;
 const fmt = std.fmt;
 const mem = std.mem;
-const Mutex = std.Thread.Mutex;
+const Mutex = std.Io.Mutex;
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
 
@@ -34,6 +35,7 @@ pub const Sync = struct {
 
     const Flag = enum { Default, IfNotExists, IfExists };
 
+    io: Io,
     ctx: Ctx,
     mutex: Mutex,
     host_buf: [256]u8,
@@ -43,14 +45,15 @@ pub const Sync = struct {
     const Self = @This();
 
     /// # Initializes HiRedis Instance
-    pub fn init(host: Str, port: u16) !Self {
+    pub fn init(io: Io, host: Str, port: u16) !Self {
         var buff: [256]u8 = undefined;
-        const host_z = try fmt.bufPrintZ(&buff, "{s}", .{host});
+        const host_z = try fmt.bufPrintSentinel(&buff, "{s}", .{host}, 0);
 
         const ctx = try hiredis.Sync.connect(host_z, port);
         var self = Self {
+            .io = io,
             .ctx = ctx,
-            .mutex = Mutex{},
+            .mutex = .init,
             .host_buf = undefined,
             .host_len = host.len,
             .port = port,
@@ -65,9 +68,9 @@ pub const Sync = struct {
 
     /// # Shows Human-Readable Error Message
     /// - Most recent error that occurred on a HiRedis instance
-    pub fn errMsg(self: *Self) Str {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+    pub fn errMsg(self: *Self) !Str {
+        try self.mutex.lock(self.io);
+        defer self.mutex.unlock(self.io);
 
         return hiredis.Sync.errMsg(self.ctx);
     }
@@ -76,8 +79,8 @@ pub const Sync = struct {
     /// - `k` - The record key (e.g., `user:1234`)
     /// - `v` - The record value (e.g., `John Doe`)
     pub fn set(self: *Self, k: Str, v: Str, f: Flag) !void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        try self.mutex.lock(self.io);
+        defer self.mutex.unlock(self.io);
 
         const reply = blk: {
             switch (f) {
@@ -112,8 +115,8 @@ pub const Sync = struct {
     /// - `v` - The record value (e.g., `John Doe`)
     /// - `ttl` - Time-to-live in seconds (e.g., `120`)
     pub fn setWith(self: *Self, k: Str, v: Str, f: Flag, ttl: u32) !void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        try self.mutex.lock(self.io);
+        defer self.mutex.unlock(self.io);
 
         var buff: [10]u8 = undefined;
         const ttl_str = try fmt.bufPrint(&buff, "{d}", .{ttl});
@@ -155,8 +158,8 @@ pub const Sync = struct {
     ///
     /// - `k` - The record key (e.g., `user:1234`)
     pub fn get(self: *Self, k: Str) !Data {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        try self.mutex.lock(self.io);
+        defer self.mutex.unlock(self.io);
 
         var argv = [2]StrC {"GET", k.ptr};
         var len = [2]usize {3, k.len};
@@ -175,8 +178,8 @@ pub const Sync = struct {
     /// # Deletes a Record by the Given Key
     /// - `k` - The record key (e.g., `user:1234`)
     pub fn remove(self: *Self, k: Str) !void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        try self.mutex.lock(self.io);
+        defer self.mutex.unlock(self.io);
 
         var argv = [2]StrC {"DEL", k.ptr};
         var len = [2]usize {3, k.len};
@@ -198,10 +201,10 @@ pub const Sync = struct {
     /// - `pk` - The partial record key (e.g., `user:*`)
     /// - `count` - Limits the maximum number of scanned keys
     pub fn scan(self: *Self, heap: Allocator, pk: Str, count: u32) !Keys {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        try self.mutex.lock(self.io);
+        defer self.mutex.unlock(self.io);
 
-        var key_list = ArrayList(Str){};
+        var key_list: ArrayList(Str) = .empty;
         errdefer key_list.deinit(heap);
 
         var cursor: StrC = "0";
@@ -254,7 +257,9 @@ pub const Sync = struct {
                     // Transparently reconnect and retry once
                     var buff: [256]u8 = undefined;
                     const host_str = self.host_buf[0..self.host_len];
-                    const host_z = try fmt.bufPrintZ(&buff, "{s}", .{host_str});
+                    const host_z = try fmt.bufPrintSentinel(
+                        &buff, "{s}", .{host_str}, 0
+                    );
 
                     const ctx = try hiredis.Sync.connect(host_z, self.port);
                     hiredis.Sync.freeCtx(self.ctx);

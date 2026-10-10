@@ -2,7 +2,7 @@ const std = @import("std");
 
 const Redox = @import("redox").Redox;
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
     std.debug.print("Hello, World!\n", .{});
 
     var gpa_mem = std.heap.DebugAllocator(.{}).init;
@@ -11,10 +11,10 @@ pub fn main() !void {
 
     // Let's start from here...
 
-    var redox = try Redox.Sync.init("127.0.0.1", 6379);
+    var redox = try Redox.Sync.init(init.io, "127.0.0.1", 6379);
     defer redox.deinit();
 
-    std.debug.print("Redis error: {s}\n", .{redox.errMsg()});
+    std.debug.print("Redis error: {s}\n", .{try redox.errMsg()});
 
     try redox.set("foo:1", "bar", .Default);
     try redox.set("foo:2", "bar", .Default);

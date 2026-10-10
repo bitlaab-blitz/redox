@@ -2,11 +2,7 @@
 
 const std = @import("std");
 
-const hiredis = @cImport({
-    @cInclude("hiredis.h");
-    @cInclude("async.h");
-});
-
+const hiredis = @import("hiredis");
 
 const Str = []const u8;
 const StrZ = [:0]const u8;
@@ -43,7 +39,7 @@ pub const Sync = struct {
     pub fn freeCtx(ctx: Ctx) void { hiredis.redisFree(ctx); }
 
     pub fn errMsg(ctx: Ctx) []const u8 {
-        return if (ctx.*.err == 0) "Unknown Redis error"
+        return if (ctx.*.err == 0) "Found No Error in Redis"
         else std.mem.sliceTo(&ctx.*.errstr, 0);
     }
 
